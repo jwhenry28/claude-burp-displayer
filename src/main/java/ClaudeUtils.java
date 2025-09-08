@@ -239,6 +239,30 @@ public class ClaudeUtils {
         try {
             ObjectMapper mapper = new ObjectMapper();
             JsonNode root = mapper.readTree(bodyString);
+            
+            // Handle system message first if it exists
+            JsonNode systemArray = root.get("system");
+            if (systemArray != null && systemArray.isArray()) {
+                MessageContent systemMessage = new MessageContent("system");
+                
+                for (JsonNode systemItem : systemArray) {
+                    if (systemItem.has("type")) {
+                        String type = systemItem.get("type").asText();
+                        if ("text".equals(type) && systemItem.has("text")) {
+                            String text = systemItem.get("text").asText();
+                            systemMessage.contentItems.add(ContentItem.createText(text));
+                        }
+                    } else if (systemItem.has("text")) {
+                        String text = systemItem.get("text").asText();
+                        systemMessage.contentItems.add(ContentItem.createText(text));
+                    }
+                }
+                
+                if (!systemMessage.contentItems.isEmpty()) {
+                    messages.add(systemMessage);
+                }
+            }
+            
             JsonNode messagesArray = root.get("messages");
             
             if (messagesArray == null || !messagesArray.isArray()) {
@@ -249,31 +273,38 @@ public class ClaudeUtils {
                 String role = messageNode.has("role") ? messageNode.get("role").asText() : "unknown";
                 MessageContent messageContent = new MessageContent(role);
                 
-                JsonNode contentArray = messageNode.get("content");
-                if (contentArray != null && contentArray.isArray()) {
-                    for (JsonNode contentItem : contentArray) {
-                        if (contentItem.has("type")) {
-                            String type = contentItem.get("type").asText();
-                            
-                            if ("text".equals(type) && contentItem.has("text")) {
+                JsonNode contentNode = messageNode.get("content");
+                if (contentNode != null) {
+                    if (contentNode.isArray()) {
+                        // Handle array of content items
+                        for (JsonNode contentItem : contentNode) {
+                            if (contentItem.has("type")) {
+                                String type = contentItem.get("type").asText();
+                                
+                                if ("text".equals(type) && contentItem.has("text")) {
+                                    String text = contentItem.get("text").asText();
+                                    messageContent.contentItems.add(ContentItem.createText(text));
+                                    
+                                } else if ("tool_use".equals(type)) {
+                                    String id = contentItem.has("id") ? contentItem.get("id").asText() : "unknown";
+                                    String name = contentItem.has("name") ? contentItem.get("name").asText() : "unknown";
+                                    String input = contentItem.has("input") ? contentItem.get("input").toString() : "{}";
+                                    messageContent.contentItems.add(ContentItem.createToolUse(id, name, input));
+                                    
+                                } else if ("tool_result".equals(type)) {
+                                    String toolUseId = contentItem.has("tool_use_id") ? contentItem.get("tool_use_id").asText() : "unknown";
+                                    String content = contentItem.has("content") ? contentItem.get("content").asText() : "";
+                                    messageContent.contentItems.add(ContentItem.createToolResult(toolUseId, content));
+                                }
+                            } else if (contentItem.has("text")) {
                                 String text = contentItem.get("text").asText();
                                 messageContent.contentItems.add(ContentItem.createText(text));
-                                
-                            } else if ("tool_use".equals(type)) {
-                                String id = contentItem.has("id") ? contentItem.get("id").asText() : "unknown";
-                                String name = contentItem.has("name") ? contentItem.get("name").asText() : "unknown";
-                                String input = contentItem.has("input") ? contentItem.get("input").toString() : "{}";
-                                messageContent.contentItems.add(ContentItem.createToolUse(id, name, input));
-                                
-                            } else if ("tool_result".equals(type)) {
-                                String toolUseId = contentItem.has("tool_use_id") ? contentItem.get("tool_use_id").asText() : "unknown";
-                                String content = contentItem.has("content") ? contentItem.get("content").asText() : "";
-                                messageContent.contentItems.add(ContentItem.createToolResult(toolUseId, content));
                             }
-                        } else if (contentItem.has("text")) {
-                            String text = contentItem.get("text").asText();
-                            messageContent.contentItems.add(ContentItem.createText(text));
                         }
+                    } else if (contentNode.isTextual()) {
+                        // Handle simple string content
+                        String text = contentNode.asText();
+                        messageContent.contentItems.add(ContentItem.createText(text));
                     }
                 }
                 
@@ -320,25 +351,50 @@ public class ClaudeUtils {
         
         List<JTextArea> textAreas = new ArrayList<>();
         
-        // Role header with colors that work with different themes
-        JLabel roleLabel = new JLabel(message.role.toUpperCase());
-        roleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
-        Color roleColor;
-        if (message.role.equals("user")) {
-            roleColor = new Color(70, 130, 180); // Steel Blue
-        } else {
-            roleColor = new Color(138, 43, 226); // Blue Violet
-        }
-        roleLabel.setForeground(roleColor);
-        roleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-        messagePanel.add(roleLabel);
-        messagePanel.add(Box.createVerticalStrut(5));
-        
-        // Content items
-        for (int i = 0; i < message.contentItems.size(); i++) {
-            ContentItem item = message.contentItems.get(i);
+        // Handle system messages differently - make them collapsible
+        if (message.role.equals("system")) {
+            // Create collapsible system message
+            StringBuilder systemContent = new StringBuilder();
+            for (ContentItem item : message.contentItems) {
+                if ("text".equals(item.type)) {
+                    if (systemContent.length() > 0) {
+                        systemContent.append("\n");
+                    }
+                    systemContent.append(item.text);
+                }
+            }
             
-            if ("text".equals(item.type)) {
+            CollapsibleToolPanelResult systemResult = createCollapsibleToolPanel(
+                "🎯 System Prompt",
+                systemContent.toString(),
+                new Color(255, 140, 0) // Dark Orange
+            );
+            messagePanel.add(systemResult.panel);
+            if (systemResult.textArea != null) {
+                textAreas.add(systemResult.textArea);
+            }
+        } else {
+            // Regular role header with colors that work with different themes
+            JLabel roleLabel = new JLabel(message.role.toUpperCase());
+            roleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 12));
+            Color roleColor;
+            if (message.role.equals("user")) {
+                roleColor = new Color(70, 130, 180); // Steel Blue
+            } else {
+                roleColor = new Color(138, 43, 226); // Blue Violet
+            }
+            roleLabel.setForeground(roleColor);
+            roleLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+            messagePanel.add(roleLabel);
+            messagePanel.add(Box.createVerticalStrut(5));
+        }
+        
+        // Content items (skip for system messages as they're already handled)
+        if (!message.role.equals("system")) {
+            for (int i = 0; i < message.contentItems.size(); i++) {
+                ContentItem item = message.contentItems.get(i);
+                
+                if ("text".equals(item.type)) {
                 // Regular text content
                 JTextArea contentArea = new JTextArea(item.text);
                 contentArea.setEditable(false);
@@ -381,6 +437,7 @@ public class ClaudeUtils {
             if (i < message.contentItems.size() - 1) {
                 messagePanel.add(Box.createVerticalStrut(10));
             }
+        }
         }
         
         return new MessagePanelResult(messagePanel, textAreas);
