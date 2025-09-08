@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.swing.*;
 import java.awt.*;
+import java.awt.event.ActionEvent;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -15,6 +16,8 @@ public class ClaudeRequestEditor implements ExtensionProvidedHttpRequestEditor {
     private final JPanel panel;
     private final JPanel contentPanel;
     private final JScrollPane scrollPane;
+    private final JPanel searchPanel;
+    private final ClaudeUtils.SearchHighlighter searchHighlighter;
     private HttpRequestResponse requestResponse;
 
     public ClaudeRequestEditor() {
@@ -34,11 +37,46 @@ public class ClaudeRequestEditor implements ExtensionProvidedHttpRequestEditor {
         scrollPane.getVerticalScrollBar().setBlockIncrement(64);
         scrollPane.getHorizontalScrollBar().setBlockIncrement(64);
         
+        // Initialize search functionality
+        searchHighlighter = new ClaudeUtils.SearchHighlighter(new ArrayList<>());
+        searchPanel = ClaudeUtils.createSearchPanel(searchHighlighter, scrollPane);
+        
+        // Make search bar visible by default for testing
+        searchPanel.setVisible(true);
+        
+        // Add keyboard shortcut for search (Ctrl+F)
+        panel.getInputMap(JComponent.WHEN_ANCESTOR_OF_FOCUSED_COMPONENT).put(KeyStroke.getKeyStroke("ctrl F"), "search");
+        panel.getActionMap().put("search", new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                searchPanel.setVisible(true);
+                // Focus on search field
+                Component searchField = findSearchField(searchPanel);
+                if (searchField != null) {
+                    searchField.requestFocus();
+                }
+            }
+        });
+        
+        panel.add(searchPanel, BorderLayout.NORTH);
         panel.add(scrollPane, BorderLayout.CENTER);
         panel.setBackground(UIManager.getColor("Panel.background"));
         
         // Initial state
         showNoClaudeMessage();
+    }
+    
+    private Component findSearchField(Container container) {
+        for (Component component : container.getComponents()) {
+            if (component instanceof JTextField) {
+                return component;
+            }
+            if (component instanceof Container) {
+                Component found = findSearchField((Container) component);
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
 
     @Override
@@ -103,12 +141,15 @@ public class ClaudeRequestEditor implements ExtensionProvidedHttpRequestEditor {
     }
     
     private void displayMessages(List<ClaudeUtils.MessageContent> messages) {
+        List<JTextArea> allTextAreas = new ArrayList<>();
+        
         for (int i = 0; i < messages.size(); i++) {
             ClaudeUtils.MessageContent message = messages.get(i);
             
             // Add message panel
-            JPanel messagePanel = ClaudeUtils.createMessagePanel(message);
-            contentPanel.add(messagePanel);
+            ClaudeUtils.MessagePanelResult result = ClaudeUtils.createMessagePanel(message);
+            contentPanel.add(result.panel);
+            allTextAreas.addAll(result.textAreas);
             
             // Add separator between messages (except after the last one)
             if (i < messages.size() - 1) {
@@ -120,6 +161,25 @@ public class ClaudeRequestEditor implements ExtensionProvidedHttpRequestEditor {
                 contentPanel.add(separator);
                 contentPanel.add(Box.createVerticalStrut(5));
             }
+        }
+        
+        // Update search highlighter with new text areas
+        updateSearchTextAreas(allTextAreas);
+    }
+    
+    private void updateSearchTextAreas(List<JTextArea> textAreas) {
+        // Clear existing highlights
+        searchHighlighter.clearHighlights();
+        // Update the search highlighter's text areas list using reflection or a new method
+        try {
+            java.lang.reflect.Field field = searchHighlighter.getClass().getDeclaredField("textAreas");
+            field.setAccessible(true);
+            @SuppressWarnings("unchecked")
+            List<JTextArea> existingTextAreas = (List<JTextArea>) field.get(searchHighlighter);
+            existingTextAreas.clear();
+            existingTextAreas.addAll(textAreas);
+        } catch (Exception e) {
+            // Reflection failed, search won't work but won't crash
         }
     }
 
