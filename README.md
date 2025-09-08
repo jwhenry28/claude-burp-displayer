@@ -1,8 +1,29 @@
 # Claude Burp Displayer
 
+_disclaimer: I vibe-coded this entire project and regret nothing_
+
 A Burp Suite extension that provides beautiful, formatted display of Claude AI conversation messages within Burp's Proxy history and Repeater tabs.
 
+Should work with any Anthropic-compatible API but only tested with Claude Code.
+
 ![demo image](images/demo.png)
+
+## Proxying
+
+1. Start BurpSuite
+2. Set Proxy env vars:
+```
+export HTTP_PROXY=http://127.0.0.1:8080
+export HTTPS_PROXY=http://127.0.0.1:8080
+export NODE_TLS_REJECT_UNAUTHORIZED=0
+```
+3. (Optional) Configure BurpSuite Settings
+    - Network > HTTP > Streaming responses: (add `api.anthropic.com`)
+    - Network > HTTP > HTTP/2 : uncheck "Default to HTTP/2 if the server supports it"
+4. Launch Claude Code
+```
+claude
+```
 
 ## Features
 
