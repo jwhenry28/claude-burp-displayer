@@ -93,14 +93,16 @@ public class LLMConversationRenderer {
             messagePanel.add(toolsLabel);
             messagePanel.add(Box.createVerticalStrut(5));
 
-            // Each tool definition as a collapsible panel
+            // Each tool definition as a collapsible panel with colored XML
             for (int i = 0; i < message.getContentItems().size(); i++) {
                 ContentItem item = message.getContentItems().get(i);
                 if (item.getType() == ContentItem.ContentType.TOOL_DEFINITION) {
                     ToolDefinitionContent toolDef = (ToolDefinitionContent) item;
-                    UIUtils.CollapsiblePanelResult toolResult = UIUtils.createCollapsiblePanel(
+                    // Use colored XML panel for tool definitions (handles <available_skills> etc.)
+                    UIUtils.CollapsiblePanelResult toolResult = UIUtils.createColoredXmlCollapsiblePanel(
                         toolDef.getName(),
-                        toolDef.getDisplayText(),
+                        toolDef.getDescription() + (toolDef.getInputSchema() != null && !toolDef.getInputSchema().isEmpty()
+                            ? "\n\nInput Schema:\n" + toolDef.getInputSchema() : ""),
                         config.toolDefinitionColor,
                         "🔧"
                     );

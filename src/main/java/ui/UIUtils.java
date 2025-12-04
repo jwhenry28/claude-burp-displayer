@@ -3,9 +3,7 @@ package ui;
 import javax.swing.*;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
-import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultHighlighter;
-import javax.swing.text.Highlighter;
+import javax.swing.text.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
@@ -20,6 +18,22 @@ import java.util.regex.PatternSyntaxException;
  * Utility class for UI components and functionality used across the extension.
  */
 public class UIUtils {
+
+    // Colors for XML indentation levels (8 colors that cycle)
+    private static final Color[] INDENT_COLORS = {
+        new Color(86, 156, 214),   // Blue
+        new Color(78, 201, 176),   // Teal
+        new Color(184, 215, 163),  // Light Green
+        new Color(220, 220, 170),  // Yellow
+        new Color(206, 145, 120),  // Orange/Salmon
+        new Color(197, 134, 192),  // Purple
+        new Color(156, 220, 254),  // Light Blue
+        new Color(181, 206, 168)   // Sage Green
+    };
+
+    // Pattern to match <available_skills>...</available_skills> blocks
+    private static final Pattern AVAILABLE_SKILLS_PATTERN =
+        Pattern.compile("(<available_skills>)(.*?)(</available_skills>)", Pattern.DOTALL);
 
     /**
      * Creates a collapsible panel with a clickable header.
@@ -86,6 +100,179 @@ public class UIUtils {
         containerPanel.add(contentPanel);
 
         return new CollapsiblePanelResult(containerPanel, contentArea);
+    }
+
+    /**
+     * Creates a collapsible panel with colored XML content for tool definitions.
+     * XML blocks like <available_skills> will have indentation-based coloring.
+     */
+    public static CollapsiblePanelResult createColoredXmlCollapsiblePanel(String title, String content, Color titleColor, String icon) {
+        JPanel containerPanel = new JPanel();
+        containerPanel.setLayout(new BoxLayout(containerPanel, BoxLayout.Y_AXIS));
+        containerPanel.setBackground(UIManager.getColor("Panel.background"));
+        containerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Create clickable header
+        JPanel headerPanel = new JPanel(new BorderLayout());
+        headerPanel.setBackground(UIManager.getColor("Panel.background"));
+        headerPanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(titleColor, 1),
+            BorderFactory.createEmptyBorder(5, 8, 5, 8)
+        ));
+        headerPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        JLabel titleLabel = new JLabel("▶ " + icon + " " + title);
+        titleLabel.setForeground(titleColor);
+        titleLabel.setFont(new Font(Font.SANS_SERIF, Font.BOLD, 11));
+        titleLabel.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+        headerPanel.add(titleLabel, BorderLayout.WEST);
+
+        // Create content panel (initially hidden)
+        JPanel contentPanel = new JPanel(new BorderLayout());
+        contentPanel.setBackground(UIManager.getColor("Panel.background"));
+        contentPanel.setBorder(BorderFactory.createCompoundBorder(
+            BorderFactory.createLineBorder(titleColor.darker(), 1),
+            BorderFactory.createEmptyBorder(8, 8, 8, 8)
+        ));
+        contentPanel.setVisible(false);
+        contentPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Use JTextPane for colored content
+        JTextPane textPane = new JTextPane();
+        textPane.setEditable(false);
+        textPane.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 10));
+        textPane.setBackground(UIManager.getColor("Panel.background"));
+
+        // Apply colored content
+        applyColoredXmlContent(textPane, content);
+
+        JScrollPane scrollPane = new JScrollPane(textPane);
+        scrollPane.setPreferredSize(new Dimension(400, Math.min(content.length() / 4 + 50, 200)));
+        scrollPane.setBorder(null);
+        scrollPane.setBackground(UIManager.getColor("Panel.background"));
+        contentPanel.add(scrollPane, BorderLayout.CENTER);
+
+        // Add click listener to toggle visibility
+        headerPanel.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                boolean isVisible = contentPanel.isVisible();
+                contentPanel.setVisible(!isVisible);
+                titleLabel.setText((isVisible ? "▶ " : "▼ ") + icon + " " + title);
+                containerPanel.revalidate();
+                containerPanel.repaint();
+            }
+        });
+
+        containerPanel.add(headerPanel);
+        containerPanel.add(contentPanel);
+
+        // Create a JTextArea wrapper for search compatibility
+        JTextArea searchableTextArea = new JTextArea(textPane.getText());
+        searchableTextArea.setVisible(false); // Hidden, just for search
+
+        return new CollapsiblePanelResult(containerPanel, searchableTextArea);
+    }
+
+    /**
+     * Applies colored XML content to a JTextPane.
+     */
+    private static void applyColoredXmlContent(JTextPane textPane, String content) {
+        StyledDocument doc = textPane.getStyledDocument();
+        Color defaultColor = UIManager.getColor("Label.foreground");
+        if (defaultColor == null) {
+            defaultColor = Color.WHITE;
+        }
+
+        // Check if content contains <available_skills> block
+        Matcher matcher = AVAILABLE_SKILLS_PATTERN.matcher(content);
+
+        int lastEnd = 0;
+        while (matcher.find()) {
+            // Add text before the match in default color
+            if (matcher.start() > lastEnd) {
+                appendStyledText(doc, content.substring(lastEnd, matcher.start()), defaultColor);
+            }
+
+            // Format and color the XML block
+            String openTag = matcher.group(1);
+            String xmlContent = matcher.group(2);
+            String closeTag = matcher.group(3);
+
+            // Add opening tag at indent level 0
+            appendStyledText(doc, openTag + "\n", INDENT_COLORS[0]);
+
+            // Format and color XML content with indentation
+            formatAndColorXmlContent(doc, xmlContent);
+
+            // Add closing tag at indent level 0
+            appendStyledText(doc, closeTag, INDENT_COLORS[0]);
+
+            lastEnd = matcher.end();
+        }
+
+        // Add remaining text after last match
+        if (lastEnd < content.length()) {
+            appendStyledText(doc, content.substring(lastEnd), defaultColor);
+        }
+    }
+
+    /**
+     * Formats XML content with indentation and applies colors based on indent level.
+     */
+    private static void formatAndColorXmlContent(StyledDocument doc, String content) {
+        int indentLevel = 1;
+        String[] lines = content.split("\n");
+
+        for (String line : lines) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+
+            // Check if this is a closing tag
+            boolean isClosingTag = trimmed.startsWith("</");
+            // Check if this is an opening tag (but not self-closing)
+            boolean isOpeningTag = trimmed.startsWith("<") && !trimmed.startsWith("</")
+                && !trimmed.endsWith("/>");
+
+            // Decrease indent before closing tags
+            if (isClosingTag) {
+                indentLevel = Math.max(1, indentLevel - 1);
+            }
+
+            // Get color for current indent level
+            Color lineColor = INDENT_COLORS[indentLevel % INDENT_COLORS.length];
+
+            // Build indented line
+            StringBuilder indentedLine = new StringBuilder();
+            for (int i = 0; i < indentLevel; i++) {
+                indentedLine.append(" ");
+            }
+            indentedLine.append(trimmed).append("\n");
+
+            // Append with color
+            appendStyledText(doc, indentedLine.toString(), lineColor);
+
+            // Increase indent after opening tags
+            if (isOpeningTag && !trimmed.contains("</")) {
+                indentLevel++;
+            }
+        }
+    }
+
+    /**
+     * Appends styled text to a StyledDocument with the specified color.
+     */
+    private static void appendStyledText(StyledDocument doc, String text, Color color) {
+        Style style = doc.addStyle("style_" + System.nanoTime(), null);
+        StyleConstants.setForeground(style, color);
+
+        try {
+            doc.insertString(doc.getLength(), text, style);
+        } catch (BadLocationException e) {
+            // Ignore
+        }
     }
 
     public static class CollapsiblePanelResult {
